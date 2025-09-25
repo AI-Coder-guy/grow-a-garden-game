@@ -119,7 +119,7 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
 
 <script>
 (() => {
-  const LS_KEY = 'garden_v4';
+  const LS_KEY = 'garden_v5';
   const GRID_COLS = 6;
   const GRID_ROWS = 3;
   const TICK_MS = 1000;
@@ -186,7 +186,25 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
   function renderAllPlots(){for(const id in state.plots)renderPlot(id);}
   function renderCoins(){coinsEl.textContent=state.coins;}
   function renderLog(){logEl.innerHTML=state.logs.slice(0,100).map(s=>`<div>${s}</div>`).join('');}
-  function renderInventory(){const inv=state.inventory;inventoryEl.textContent=Object.keys(inv).length?Object.entries(inv).map(([k,v])=>`${k}: ${v}`).join(", "):"None";}
+
+  function renderInventory(){ 
+    const inv=state.inventory;
+    inventoryEl.innerHTML = Object.keys(inv).length
+        ? Object.entries(inv).map(([k,v])=>{
+            const span = document.createElement('span');
+            span.textContent = `${k}: ${v}`;
+            span.style.cursor = 'pointer';
+            span.style.marginRight = '8px';
+            span.onclick = () => { 
+                if(inv[k] > 0){
+                    selectedSeed = k; 
+                    log(`Selected seed: ${k}`); 
+                } else { alert(`No ${k} seeds left.`); }
+            };
+            return span.outerHTML;
+          }).join("")
+        : "None";
+  }
 
   function renderShop(){
     shopArea.innerHTML='';
@@ -197,13 +215,17 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
       <div class="meta"><h4>${name} · ${seedInfo.price}c</h4><p>${plantCfg.desc} • ${Math.round(plantCfg.growthTime/1000)}s to grow</p></div>
       <div><button data-name="${name}">Buy</button></div>`;
       const btn=div.querySelector('button');
-      btn.onclick=()=>{
-        if(state.coins>=seedInfo.price){
-          state.coins-=seedInfo.price;
-          state.inventory[name]=(state.inventory[name]||0)+1;
+      btn.onclick = () => {
+        if(state.coins >= seedInfo.price){
+          state.coins -= seedInfo.price;
+          state.inventory[name] = (state.inventory[name] || 0) + 1;
+          selectedSeed = name; // <-- auto-select after buying
           log(`Bought 1 ${name} seed. You now have ${state.inventory[name]}.`);
           save(); renderCoins(); renderInventory();
-        } else { alert('Not enough coins!'); log(`Not enough coins for ${name}.`);}
+        } else { 
+          alert('Not enough coins!'); 
+          log(`Not enough coins for ${name}.`);
+        }
       };
       shopArea.appendChild(div);
     }
@@ -213,17 +235,36 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
 
   function actionPlant(){
     if(!selectedPlot){ alert('Select a plot'); return; }
-    const seed = selectedSeed; if(!seed){ alert('Select a seed!'); return; }
-    if(!state.inventory[seed]||state.inventory[seed]<=0){alert('You need to buy a seed first!'); return;}
+    if(!selectedSeed){ alert('Select a seed!'); return; }
+    if(!state.inventory[selectedSeed]||state.inventory[selectedSeed]<=0){alert('You need to buy a seed first!'); return;}
     if(state.plots[selectedPlot]){ alert('Plot already planted'); return;}
-    state.plots[selectedPlot]={plantName:seed,plantedAt:now(),stage:1,watered:true,lastStageAt:now()};
-    state.inventory[seed]--; log(`Planted ${seed} on plot ${selectedPlot}. Remaining: ${state.inventory[seed]}`);
+    state.plots[selectedPlot]={plantName:selectedSeed,plantedAt:now(),stage:1,watered:true,lastStageAt:now()};
+    state.inventory[selectedSeed]--; log(`Planted ${selectedSeed} on plot ${selectedPlot}. Remaining: ${state.inventory[selectedSeed]}`);
     save(); renderPlot(selectedPlot); renderInventory();
   }
 
-  function actionWater(){ if(!selectedPlot){alert('Select a plot');return;} const pd=state.plots[selectedPlot]; if(!pd){alert('Nothing to water');return;} if(pd.watered){log(`Plot ${selectedPlot} already watered.`); return;} pd.watered=true; pd.lastStageAt=now(); log(`Watered plot ${selectedPlot}.`); save(); renderPlot(selectedPlot); }
+  function actionWater(){ 
+    if(!selectedPlot){alert('Select a plot');return;} 
+    const pd=state.plots[selectedPlot]; 
+    if(!pd){alert('Nothing to water');return;} 
+    if(pd.watered){log(`Plot ${selectedPlot} already watered.`); return;} 
+    pd.watered=true; pd.lastStageAt=now(); 
+    log(`Watered plot ${selectedPlot}.`); 
+    save(); renderPlot(selectedPlot); 
+  }
 
-  function actionHarvest(){ if(!selectedPlot){alert('Select a plot');return;} const pd=state.plots[selectedPlot]; if(!pd){alert('Nothing to harvest');return;} const cfg=PLANTS[pd.plantName]; const elapsed=now()-pd.plantedAt; if(elapsed>=cfg.growthTime){state.coins+=cfg.reward;state.plots[selectedPlot]=null; log(`Harvested ${pd.plantName} from ${selectedPlot} (+${cfg.reward}c).`); save(); renderAllPlots(); renderCoins();} else {alert('Not fully grown yet.'); log(`Tried to harvest ${selectedPlot} but not ready.`);} }
+  function actionHarvest(){ 
+    if(!selectedPlot){alert('Select a plot');return;} 
+    const pd=state.plots[selectedPlot]; 
+    if(!pd){alert('Nothing to harvest');return;} 
+    const cfg=PLANTS[pd.plantName]; 
+    const elapsed=now()-pd.plantedAt; 
+    if(elapsed>=cfg.growthTime){
+      state.coins+=cfg.reward; state.plots[selectedPlot]=null; 
+      log(`Harvested ${pd.plantName} from ${selectedPlot} (+${cfg.reward}c).`); 
+      save(); renderAllPlots(); renderCoins();
+    } else {alert('Not fully grown yet.'); log(`Tried to harvest ${selectedPlot} but not ready.`);} 
+  }
 
   function tick(){const current=now(); for(const id in state.plots){ const pd=state.plots[id]; if(!pd)continue; const cfg=PLANTS[pd.plantName]; const stageTime=cfg.growthTime/cfg.stages; if(pd.watered){ if(current-pd.lastStageAt>=stageTime&&pd.stage<cfg.stages){ pd.stage+=1; pd.lastStageAt=current; pd.watered=false; log(`${pd.plantName} on ${id} advanced to stage ${pd.stage}.`); save(); renderPlot(id);} if(pd.stage>=cfg.stages){renderPlot(id);}}}}
 
@@ -242,3 +283,4 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
 </script>
 </body>
 </html>
+

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grow-a-Garden — Web Game</title>
+<title>Grow-a-Garden — Animated Web Game</title>
 <style>
 :root{
     --bg:#f0f9f3;
@@ -33,24 +33,19 @@ button.secondary{background:#ddd;color:#222}
 }
 .plot.selected{outline:3px solid rgba(45,156,115,0.25);transform:translateY(-3px)}
 .plant{
-    width:50%;height:14px;border-radius:6px;position:relative;bottom:8px;display:flex;align-items:end;justify-content:center;flex-direction:column;transition:height 0.3s, bottom 0.3s;
+    width:50%;height:14px;border-radius:6px;position:relative;bottom:8px;display:flex;align-items:end;justify-content:center;flex-direction:column;
 }
-.plant .stem {
-    width: 6px;
-    height: 50px;
-    border-radius: 6px;
-    background: #2f7b47;
-    transition: height 1s ease; /* Smooth growth */
+.plant .stem{
+    width:6px;border-radius:6px;background:#2f7b47;
+    transition:height 1s ease; /* Smooth stem growth */
 }
-
-.plant .top {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    margin-bottom: -6px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    transition: transform 1s ease; /* Smooth scaling */
-}.carrot .top{background:orange}
+.plant .top{
+    width:28px;height:28px;border-radius:50%;
+    margin-bottom:-6px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.18);
+    transition: transform 1s ease; /* Smooth top growth */
+}
+.carrot .top{background:orange}
 .sunflower .top{background:gold}
 .tomato .top{background:red}
 .rose .top{background:pink}
@@ -71,7 +66,7 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
 <body>
 <div class="app">
   <header>
-    <h1>Grow-a-Garden (Web)</h1>
+    <h1>Grow-a-Garden (Animated)</h1>
     <div class="hud">
       <div class="coins">Coins: <span id="coins">0</span></div>
       <div class="controls">
@@ -101,6 +96,13 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
       <button id="harvestBtn" class="secondary">Harvest</button>
     </div>
 
+    <!-- Seed Inventory Section -->
+    <div style="margin-bottom:8px;">
+      <div style="font-weight:700;">Seed Inventory</div>
+      <div id="inventoryDisplay">None</div>
+    </div>
+
+    <!-- Shop Section -->
     <div style="margin-top:8px">
       <div style="font-weight:700;margin-bottom:6px">Shop</div>
       <div class="shop" id="shopArea"></div>
@@ -112,158 +114,129 @@ footer{grid-column:1/-1;text-align:center;color:var(--muted);font-size:13px;marg
     </div>
   </aside>
 
-  <footer>Saved locally in your browser. To publish: upload this file to GitHub Pages / Netlify.</footer>
+  <footer>Saved locally in your browser. Upload to GitHub Pages / Netlify to publish.</footer>
 </div>
 
 <script>
 (() => {
-  const LS_KEY = 'garden_v2';
+  const LS_KEY = 'garden_v4';
   const GRID_COLS = 6;
   const GRID_ROWS = 3;
   const TICK_MS = 1000;
 
   const PLANTS = {
-    Carrot:      { growthTime: 60 * 1000, stages: 3, reward: 10, desc: "Quick & tasty" },
-    Sunflower:   { growthTime: 120 * 1000, stages: 4, reward: 25, desc: "Slow but worth it" },
-    Tomato:      { growthTime: 80 * 1000, stages: 4, reward: 18, desc: "Juicy and fast" },
-    Rose:        { growthTime: 100 * 1000, stages: 3, reward: 20, desc: "Pretty and profitable" },
-    Pumpkin:     { growthTime: 150 * 1000, stages: 5, reward: 35, desc: "Big and slow" },
-    Blueberry:   { growthTime: 70 * 1000, stages: 3, reward: 15, desc: "Small but sweet" }
+    Carrot:{growthTime:60000,stages:3,reward:10,desc:"Quick & tasty"},
+    Sunflower:{growthTime:120000,stages:4,reward:25,desc:"Slow but worth it"},
+    Tomato:{growthTime:80000,stages:4,reward:18,desc:"Juicy and fast"},
+    Rose:{growthTime:100000,stages:3,reward:20,desc:"Pretty and profitable"},
+    Pumpkin:{growthTime:150000,stages:5,reward:35,desc:"Big and slow"},
+    Blueberry:{growthTime:70000,stages:3,reward:15,desc:"Small but sweet"}
   };
 
   const SEEDS = {
-    Carrot:      { price: 5 },
-    Sunflower:   { price: 12 },
-    Tomato:      { price: 8 },
-    Rose:        { price: 10 },
-    Pumpkin:     { price: 18 },
-    Blueberry:   { price: 7 }
+    Carrot:{price:5},Sunflower:{price:12},Tomato:{price:8},
+    Rose:{price:10},Pumpkin:{price:18},Blueberry:{price:7}
   };
 
-  let state = { coins: 50, plots: {}, logs: [] };
-  const gridEl = document.getElementById('grid');
-  const coinsEl = document.getElementById('coins');
-  const shopArea = document.getElementById('shopArea');
-  const logEl = document.getElementById('log');
-  const selectedLabel = document.getElementById('selectedLabel');
-  let selectedPlot = null;
+  let state={coins:50,plots:{},logs:[],inventory:{}};
+  const gridEl=document.getElementById('grid');
+  const coinsEl=document.getElementById('coins');
+  const shopArea=document.getElementById('shopArea');
+  const logEl=document.getElementById('log');
+  const selectedLabel=document.getElementById('selectedLabel');
+  const inventoryEl=document.getElementById('inventoryDisplay');
+  let selectedPlot=null;
+  let selectedSeed=null;
 
-  function now(){ return Date.now(); }
-  function log(text){
-    const time = new Date().toLocaleTimeString();
-    state.logs.unshift(`[${time}] ${text}`);
-    if(state.logs.length > 200) state.logs.length = 200;
-    renderLog(); save();
-  }
-
-  function load(){
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if(raw) state = JSON.parse(raw);
-    } catch(e){ console.warn("Load failed:", e); }
-  }
-  function save(){ try { localStorage.setItem(LS_KEY, JSON.stringify(state)); renderCoins(); } catch(e){console.warn(e);} }
+  function now(){return Date.now();}
+  function log(text){const time=new Date().toLocaleTimeString();state.logs.unshift(`[${time}] ${text}`);if(state.logs.length>200)state.logs.length=200;renderLog();save();}
+  function load(){try{const raw=localStorage.getItem(LS_KEY);if(raw)state=JSON.parse(raw);}catch(e){console.warn("Load failed:",e);}}
+  function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(state));renderCoins();renderInventory();}catch(e){console.warn(e);}}
 
   function initPlots(){
-    gridEl.innerHTML = '';
-    const total = GRID_COLS * GRID_ROWS;
+    gridEl.innerHTML='';
+    const total=GRID_COLS*GRID_ROWS;
     for(let i=1;i<=total;i++){
-      const id = String(i);
-      const plot = document.createElement('div');
-      plot.className = 'plot';
-      plot.dataset.id = id;
-      plot.innerHTML = `<div class="plot-label">${id}</div>`;
-      plot.onclick = () => selectPlot(id);
+      const id=String(i);
+      const plot=document.createElement('div'); plot.className='plot'; plot.dataset.id=id;
+      plot.innerHTML=`<div class="plot-label">${id}</div>`;
+      plot.onclick=()=>selectPlot(id);
       gridEl.appendChild(plot);
-      if(!state.plots[id]) state.plots[id] = null;
+      if(!state.plots[id]) state.plots[id]=null;
     }
   }
 
   function renderPlot(id){
-    const plot = gridEl.querySelector(`.plot[data-id="${id}"]`);
-    const pd = state.plots[id];
-    const old = plot.querySelector('.plant'); if(old) old.remove();
+    const plot=gridEl.querySelector(`.plot[data-id="${id}"]`);
+    const pd=state.plots[id];
+    const old=plot.querySelector('.plant'); if(old) old.remove();
     const wateredBadge = plot.querySelector('.watered-badge'); if(wateredBadge) wateredBadge.remove();
     if(pd){
-      const cfg = PLANTS[pd.plantName];
-      const stage = pd.stage || 1;
-      const stageRatio = stage / cfg.stages;
-      const plant = document.createElement('div');
-      plant.className = `plant ${pd.plantName.toLowerCase()}`;
-      const stem = document.createElement('div'); stem.className = 'stem';
-      stem.style.height = `${20 + stage * 18}px`;
-      const top = document.createElement('div'); top.className = 'top';
-      top.style.transform = `scale(${0.6 + stageRatio * 0.9})`;
+      const cfg=PLANTS[pd.plantName];
+      const stage=pd.stage||1;
+      const stageRatio=stage/cfg.stages;
+      const plant=document.createElement('div'); plant.className=`plant ${pd.plantName.toLowerCase()}`;
+      const stem=document.createElement('div'); stem.className='stem'; stem.style.height=`${20+stage*18}px`;
+      const top=document.createElement('div'); top.className='top'; top.style.transform=`scale(${0.6+stageRatio*0.9})`;
       plant.appendChild(stem); plant.appendChild(top); plot.appendChild(plant);
-      if(pd.watered){
-        const w = document.createElement('div'); w.className = 'watered-badge'; w.textContent='Watered'; plot.appendChild(w);
-      }
+      if(pd.watered){ const w=document.createElement('div'); w.className='watered-badge'; w.textContent='Watered'; plot.appendChild(w);}
     }
-    plot.classList.toggle('selected', selectedPlot === id);
+    plot.classList.toggle('selected', selectedPlot===id);
   }
-  function renderAllPlots(){ for(const id in state.plots) renderPlot(id); }
-  function renderCoins(){ coinsEl.textContent = state.coins; }
-  function renderLog(){ logEl.innerHTML = state.logs.slice(0,100).map(s=>`<div>${s}</div>`).join(''); }
+  function renderAllPlots(){for(const id in state.plots)renderPlot(id);}
+  function renderCoins(){coinsEl.textContent=state.coins;}
+  function renderLog(){logEl.innerHTML=state.logs.slice(0,100).map(s=>`<div>${s}</div>`).join('');}
+  function renderInventory(){const inv=state.inventory;inventoryEl.textContent=Object.keys(inv).length?Object.entries(inv).map(([k,v])=>`${k}: ${v}`).join(", "):"None";}
 
   function renderShop(){
-    shopArea.innerHTML = '';
+    shopArea.innerHTML='';
     for(const name in SEEDS){
-      const seedInfo = SEEDS[name]; const plantCfg = PLANTS[name];
-      const div = document.createElement('div'); div.className='seed';
-      div.innerHTML = `<div style="width:48px;height:48px;border-radius:8px;background:${name==='Carrot'?'orange':name==='Sunflower'?'gold':name==='Tomato'?'red':name==='Rose'?'pink':name==='Pumpkin'?'#D2691E':'blue'};box-shadow:0 2px 6px rgba(0,0,0,0.12)"></div>
+      const seedInfo=SEEDS[name]; const plantCfg=PLANTS[name];
+      const div=document.createElement('div'); div.className='seed';
+      div.innerHTML=`<div style="width:48px;height:48px;border-radius:8px;background:${name==='Carrot'?'orange':name==='Sunflower'?'gold':name==='Tomato'?'red':name==='Rose'?'pink':name==='Pumpkin'?'#D2691E':'blue'};box-shadow:0 2px 6px rgba(0,0,0,0.12)"></div>
       <div class="meta"><h4>${name} · ${seedInfo.price}c</h4><p>${plantCfg.desc} • ${Math.round(plantCfg.growthTime/1000)}s to grow</p></div>
       <div><button data-name="${name}">Buy</button></div>`;
-      const btn = div.querySelector('button'); btn.onclick = ()=>{
-        if(state.coins>=seedInfo.price){ state.coins-=seedInfo.price; state.selectedSeed=name; log(`Bought seed: ${name} (-${seedInfo.price}c). Now select plot and press Plant.`); save(); renderCoins(); } else { log(`Not enough coins to buy ${name}.`); alert('Not enough coins!'); }
+      const btn=div.querySelector('button');
+      btn.onclick=()=>{
+        if(state.coins>=seedInfo.price){
+          state.coins-=seedInfo.price;
+          state.inventory[name]=(state.inventory[name]||0)+1;
+          log(`Bought 1 ${name} seed. You now have ${state.inventory[name]}.`);
+          save(); renderCoins(); renderInventory();
+        } else { alert('Not enough coins!'); log(`Not enough coins for ${name}.`);}
       };
       shopArea.appendChild(div);
     }
   }
 
-  function selectPlot(id){ selectedPlot=id; selectedLabel.textContent=`Selected: ${id}`; renderAllPlots(); }
+  function selectPlot(id){selectedPlot=id; selectedLabel.textContent=`Selected: ${id}`; renderAllPlots();}
+
   function actionPlant(){
     if(!selectedPlot){ alert('Select a plot'); return; }
-    const seed = state.selectedSeed || Object.keys(SEEDS)[0];
-    if(!SEEDS[seed]){ alert('No seed selected'); return; }
-    if(state.plots[selectedPlot]){ alert('Plot already planted'); return; }
-    state.plots[selectedPlot] = { plantName: seed, plantedAt: now(), stage:1, watered:true, lastStageAt:now() };
-    log(`Planted ${seed} on plot ${selectedPlot}.`); save(); renderPlot(selectedPlot);
-  }
-  function actionWater(){
-    if(!selectedPlot){ alert('Select a plot'); return; }
-    const pd=state.plots[selectedPlot]; if(!pd){ alert('Nothing to water'); return; }
-    if(pd.watered){ log(`Plot ${selectedPlot} already watered.`); return; }
-    pd.watered=true; pd.lastStageAt=now(); log(`Watered plot ${selectedPlot}.`); save(); renderPlot(selectedPlot);
-  }
-  function actionHarvest(){
-    if(!selectedPlot){ alert('Select a plot'); return; }
-    const pd=state.plots[selectedPlot]; if(!pd){ alert('Nothing to harvest'); return; }
-    const cfg=PLANTS[pd.plantName]; const elapsed=now()-pd.plantedAt;
-    if(elapsed>=cfg.growthTime){ state.coins+=cfg.reward; state.plots[selectedPlot]=null; log(`Harvested ${pd.plantName} from ${selectedPlot} (+${cfg.reward}c).`); save(); renderAllPlots(); renderCoins(); } else { alert('Not fully grown yet.'); log(`Tried to harvest ${selectedPlot} but not ready.`); }
+    const seed = selectedSeed; if(!seed){ alert('Select a seed!'); return; }
+    if(!state.inventory[seed]||state.inventory[seed]<=0){alert('You need to buy a seed first!'); return;}
+    if(state.plots[selectedPlot]){ alert('Plot already planted'); return;}
+    state.plots[selectedPlot]={plantName:seed,plantedAt:now(),stage:1,watered:true,lastStageAt:now()};
+    state.inventory[seed]--; log(`Planted ${seed} on plot ${selectedPlot}. Remaining: ${state.inventory[seed]}`);
+    save(); renderPlot(selectedPlot); renderInventory();
   }
 
-  function tick(){
-    const current = now();
-    for(const id in state.plots){
-      const pd=state.plots[id]; if(!pd) continue;
-      const cfg=PLANTS[pd.plantName]; const stageTime=cfg.growthTime/cfg.stages;
-      if(pd.watered){
-        if(current-pd.lastStageAt>=stageTime && pd.stage<cfg.stages){ pd.stage+=1; pd.lastStageAt=current; pd.watered=false; log(`${pd.plantName} on ${id} advanced to stage ${pd.stage}.`); save(); renderPlot(id); }
-        if(pd.stage>=cfg.stages){ renderPlot(id); }
-      }
-    }
-  }
+  function actionWater(){ if(!selectedPlot){alert('Select a plot');return;} const pd=state.plots[selectedPlot]; if(!pd){alert('Nothing to water');return;} if(pd.watered){log(`Plot ${selectedPlot} already watered.`); return;} pd.watered=true; pd.lastStageAt=now(); log(`Watered plot ${selectedPlot}.`); save(); renderPlot(selectedPlot); }
 
-  document.getElementById('plantBtn').addEventListener('click', actionPlant);
-  document.getElementById('waterBtn').addEventListener('click', actionWater);
-  document.getElementById('harvestBtn').addEventListener('click', actionHarvest);
-  document.getElementById('btnReset').addEventListener('click', ()=>{ if(confirm('Reset your garden?')){ localStorage.removeItem(LS_KEY); location.reload(); }});
-  document.getElementById('btnShop').addEventListener('click', ()=>{ alert('Shop is on the right panel — buy a seed and then Plant on a selected plot.'); });
+  function actionHarvest(){ if(!selectedPlot){alert('Select a plot');return;} const pd=state.plots[selectedPlot]; if(!pd){alert('Nothing to harvest');return;} const cfg=PLANTS[pd.plantName]; const elapsed=now()-pd.plantedAt; if(elapsed>=cfg.growthTime){state.coins+=cfg.reward;state.plots[selectedPlot]=null; log(`Harvested ${pd.plantName} from ${selectedPlot} (+${cfg.reward}c).`); save(); renderAllPlots(); renderCoins();} else {alert('Not fully grown yet.'); log(`Tried to harvest ${selectedPlot} but not ready.`);} }
 
-  load(); initPlots(); renderShop(); renderCoins(); renderLog(); renderAllPlots();
+  function tick(){const current=now(); for(const id in state.plots){ const pd=state.plots[id]; if(!pd)continue; const cfg=PLANTS[pd.plantName]; const stageTime=cfg.growthTime/cfg.stages; if(pd.watered){ if(current-pd.lastStageAt>=stageTime&&pd.stage<cfg.stages){ pd.stage+=1; pd.lastStageAt=current; pd.watered=false; log(`${pd.plantName} on ${id} advanced to stage ${pd.stage}.`); save(); renderPlot(id);} if(pd.stage>=cfg.stages){renderPlot(id);}}}}
+
+  document.getElementById('plantBtn').addEventListener('click',actionPlant);
+  document.getElementById('waterBtn').addEventListener('click',actionWater);
+  document.getElementById('harvestBtn').addEventListener('click',actionHarvest);
+  document.getElementById('btnReset').addEventListener('click',()=>{if(confirm('Reset your garden?')){localStorage.removeItem(LS_KEY);location.reload();}});
+  document.getElementById('btnShop').addEventListener('click',()=>{alert('Shop is on the right panel — buy a seed and then Plant on a selected plot.');});
+
+  load(); initPlots(); renderShop(); renderCoins(); renderLog(); renderAllPlots(); renderInventory();
   setInterval(tick,TICK_MS); setInterval(save,5000);
 
-  document.body.addEventListener('click',(e)=>{ if(!e.target.closest('.plot') && !e.target.closest('.seed') && !e.target.closest('button')){ selectedPlot=null; selectedLabel.textContent='Selected: —'; renderAllPlots(); } });
+  document.body.addEventListener('click',(e)=>{if(!e.target.closest('.plot')&&!e.target.closest('.seed')&&!e.target.closest('button')){selectedPlot=null; selectedLabel.textContent='Selected: —'; renderAllPlots();}});
   if(!state.logs.length) log('Welcome! Buy a seed, select a plot, plant, water, wait for growth, then harvest.');
 })();
 </script>
